@@ -2,48 +2,80 @@
 
 import { useEffect, useRef, useState } from "react";
 import Toolbar from "./toolbar";
-import { io } from "socket.io-client";
 
 export default function Canvas() {
-  const canvasRef = useRef(null);
+  const gridCanvasRef = useRef(null);
+  const drawCanvasRef = useRef(null);
   const ctxRef = useRef(null);
 
   const [mode, setMode] = useState("brush");
   const [isDrawing, setIsDrawing] = useState(false);
   const [startPos, setStartPos] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
+  const [showGrid, setShowGrid] = useState(false);
+  const [size, setSize] = useState({ w: 0, h: 0 });
 
-  const [connected, setConnected] = useState(false);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    const socket = io("http://localhost:3000", {
-      transports: ["websocket"],
-      timeout: 5000,
-    });
-
-    socket.on("connect", () => {
-      setConnected(true);
-      setError(false);
-    });
-
-    socket.on("connect_error", () => {
-      setError(true);
-      setConnected(false);
-    });
-
-    return () => socket.disconnect();
-  }, []);
-
-  const getContext = () => {
+  const getCtx = () => {
     if (!ctxRef.current) {
-      ctxRef.current = canvasRef.current.getContext("2d");
+      ctxRef.current = drawCanvasRef.current.getContext("2d");
     }
     return ctxRef.current;
   };
 
+  const resizeCanvas = () => {
+    const toolbarHeight = 60;
+    const w = window.innerWidth;
+    const h = window.innerHeight - toolbarHeight;
+
+    setSize({ w, h });
+
+    gridCanvasRef.current.width = w;
+    gridCanvasRef.current.height = h;
+
+    drawCanvasRef.current.width = w;
+    drawCanvasRef.current.height = h;
+
+    drawGrid();
+  };
+
+  const drawGrid = () => {
+    const canvas = gridCanvasRef.current;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!showGrid) return;
+
+    const gap = 25;
+    ctx.strokeStyle = "#ddd";
+    ctx.lineWidth = 1;
+
+    for (let x = 0; x < canvas.width; x += gap) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+
+    for (let y = 0; y < canvas.height; y += gap) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+  };
+
+  useEffect(() => {
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+    return () => window.removeEventListener("resize", resizeCanvas);
+  }, []);
+
+  useEffect(() => {
+    drawGrid();
+  }, [showGrid]);
+
   const startDrawing = (e) => {
-    const ctx = getContext();
+    const ctx = getCtx();
     const x = e.nativeEvent.offsetX;
     const y = e.nativeEvent.offsetY;
 
@@ -60,8 +92,8 @@ export default function Canvas() {
       ctx.getImageData(
         0,
         0,
-        canvasRef.current.width,
-        canvasRef.current.height
+        drawCanvasRef.current.width,
+        drawCanvasRef.current.height
       )
     );
     setIsDrawing(true);
@@ -69,8 +101,7 @@ export default function Canvas() {
 
   const draw = (e) => {
     if (!isDrawing) return;
-
-    const ctx = getContext();
+    const ctx = getCtx();
     const x = e.nativeEvent.offsetX;
     const y = e.nativeEvent.offsetY;
 
@@ -99,15 +130,15 @@ export default function Canvas() {
     }
 
     if (mode === "circle") {
-      const radius = Math.hypot(x - startPos.x, y - startPos.y);
+      const r = Math.hypot(x - startPos.x, y - startPos.y);
       ctx.beginPath();
-      ctx.arc(startPos.x, startPos.y, radius, 0, Math.PI * 2);
+      ctx.arc(startPos.x, startPos.y, r, 0, Math.PI * 2);
       ctx.stroke();
     }
   };
 
   const stopDrawing = () => {
-    const ctx = getContext();
+    const ctx = getCtx();
     ctx.closePath();
     ctx.globalCompositeOperation = "source-over";
     setIsDrawing(false);
@@ -116,63 +147,40 @@ export default function Canvas() {
   };
 
   const clearBoard = () => {
-    const ctx = getContext();
+    const ctx = getCtx();
     ctx.clearRect(
       0,
       0,
-      canvasRef.current.width,
-      canvasRef.current.height
+      drawCanvasRef.current.width,
+      drawCanvasRef.current.height
     );
   };
 
-  if (!connected && !error) {
-    return (
-      <div style={loaderStyle}>
-        <div style={spinnerStyle}></div>
-        <p>Connecting to whiteboard...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div style={loaderStyle}>
-        <p style={{ color: "red" }}>Unable to connect to server</p>
-      </div>
-    );
-  }
-
   return (
-    <>
-      <Toolbar setMode={setMode} onClear={clearBoard} />
-      <canvas
-        ref={canvasRef}
-        width={800}
-        height={500}
-        style={{ border: "1px solid black", background: "white" }}
-        onMouseDown={startDrawing}
-        onMouseMove={draw}
-        onMouseUp={stopDrawing}
-        onMouseLeave={stopDrawing}
+    <div style={{ height: "100vh", overflow: "hidden" }}>
+      <Toolbar
+        setMode={setMode}
+        onClear={clearBoard}
+        toggleGrid={() => setShowGrid(!showGrid)}
+        showGrid={showGrid}
       />
-    </>
+
+      <div style={{ position: "relative", width: "100%", height: "100%" }}>
+        <canvas
+          ref={gridCanvasRef}
+          style={{ position: "absolute", top: 0, left: 0 }}
+        />
+
+        <canvas
+          ref={drawCanvasRef}
+          style={{ position: "absolute", top: 0, left: 0 }}
+          onMouseDown={startDrawing}
+          onMouseMove={draw}
+          onMouseUp={stopDrawing}
+          onMouseLeave={stopDrawing}
+        />
+      </div>
+    </div>
   );
 }
-
-const loaderStyle = {
-  display: "flex",
-  flexDirection: "column",
-  justifyContent: "center",
-  alignItems: "center",
-  height: "100vh",
-};
-
-const spinnerStyle = {
-  width: 40,
-  height: 40,
-  border: "4px solid #ccc",
-  borderTop: "4px solid black",
-  borderRadius: "50%",
-  animation: "spin 1s linear infinite",
-};
 
