@@ -9,11 +9,16 @@ export default function Toolbar({ setMode, onClear }) {
         borderBottom: "1px solid #ccc",
         display: "flex",
         gap: 10,
+        flexWrap: "wrap",
       }}
     >
-      {/* ✅ THESE TWO LINES FIX EVERYTHING */}
       <button onClick={() => setMode("brush")}>Brush</button>
       <button onClick={() => setMode("eraser")}>Eraser</button>
+
+      {/* ✅ Shape tools */}
+      <button onClick={() => setMode("line")}>Line</button>
+      <button onClick={() => setMode("rect")}>Rectangle</button>
+      <button onClick={() => setMode("circle")}>Circle</button>
 
       <button onClick={onClear}>Clear Board</button>
     </div>
