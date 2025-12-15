@@ -1,16 +1,39 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Toolbar from "./toolbar";
+import { io } from "socket.io-client";
 
 export default function Canvas() {
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
 
-  const [isDrawing, setIsDrawing] = useState(false);
   const [mode, setMode] = useState("brush");
+  const [isDrawing, setIsDrawing] = useState(false);
   const [startPos, setStartPos] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
+
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    const socket = io("http://localhost:3000", {
+      transports: ["websocket"],
+      timeout: 5000,
+    });
+
+    socket.on("connect", () => {
+      setConnected(true);
+      setError(false);
+    });
+
+    socket.on("connect_error", () => {
+      setError(true);
+      setConnected(false);
+    });
+
+    return () => socket.disconnect();
+  }, []);
 
   const getContext = () => {
     if (!ctxRef.current) {
@@ -26,23 +49,27 @@ export default function Canvas() {
 
     ctx.lineWidth = mode === "eraser" ? 20 : 2;
     ctx.strokeStyle = "black";
-
-    if (mode === "eraser") {
-      ctx.globalCompositeOperation = "destination-out";
-    } else {
-      ctx.globalCompositeOperation = "source-over";
-    }
+    ctx.globalCompositeOperation =
+      mode === "eraser" ? "destination-out" : "source-over";
 
     ctx.beginPath();
     ctx.moveTo(x, y);
 
     setStartPos({ x, y });
-    setSnapshot(ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height));
+    setSnapshot(
+      ctx.getImageData(
+        0,
+        0,
+        canvasRef.current.width,
+        canvasRef.current.height
+      )
+    );
     setIsDrawing(true);
   };
 
   const draw = (e) => {
     if (!isDrawing) return;
+
     const ctx = getContext();
     const x = e.nativeEvent.offsetX;
     const y = e.nativeEvent.offsetY;
@@ -53,7 +80,6 @@ export default function Canvas() {
       return;
     }
 
-    // 🔁 Restore previous canvas (for live preview)
     ctx.putImageData(snapshot, 0, 0);
 
     if (mode === "line") {
@@ -73,9 +99,7 @@ export default function Canvas() {
     }
 
     if (mode === "circle") {
-      const radius = Math.sqrt(
-        Math.pow(x - startPos.x, 2) + Math.pow(y - startPos.y, 2)
-      );
+      const radius = Math.hypot(x - startPos.x, y - startPos.y);
       ctx.beginPath();
       ctx.arc(startPos.x, startPos.y, radius, 0, Math.PI * 2);
       ctx.stroke();
@@ -92,15 +116,35 @@ export default function Canvas() {
   };
 
   const clearBoard = () => {
-    const canvas = canvasRef.current;
     const ctx = getContext();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(
+      0,
+      0,
+      canvasRef.current.width,
+      canvasRef.current.height
+    );
   };
+
+  if (!connected && !error) {
+    return (
+      <div style={loaderStyle}>
+        <div style={spinnerStyle}></div>
+        <p>Connecting to whiteboard...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={loaderStyle}>
+        <p style={{ color: "red" }}>Unable to connect to server</p>
+      </div>
+    );
+  }
 
   return (
     <>
       <Toolbar setMode={setMode} onClear={clearBoard} />
-
       <canvas
         ref={canvasRef}
         width={800}
@@ -114,3 +158,21 @@ export default function Canvas() {
     </>
   );
 }
+
+const loaderStyle = {
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  alignItems: "center",
+  height: "100vh",
+};
+
+const spinnerStyle = {
+  width: 40,
+  height: 40,
+  border: "4px solid #ccc",
+  borderTop: "4px solid black",
+  borderRadius: "50%",
+  animation: "spin 1s linear infinite",
+};
+
