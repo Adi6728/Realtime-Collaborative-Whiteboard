@@ -1,13 +1,23 @@
-export default function Toolbar({ onClear }) {
-  return (
-    <div style={{ padding: 10, background: "#eee" }}>
-      <button>Brush</button>
-      <button>Eraser</button>
+"use client";
 
-      {/* ✅ New Clear Board button */}
-      <button onClick={onClear} style={{ marginLeft: 10 }}>
-        Clear Board
-      </button>
+export default function Toolbar({ setMode, onClear }) {
+  return (
+    <div
+      style={{
+        padding: 10,
+        background: "white",
+        borderBottom: "1px solid #ccc",
+        display: "flex",
+        gap: 10,
+      }}
+    >
+      {/* ✅ THESE TWO LINES FIX EVERYTHING */}
+      <button onClick={() => setMode("brush")}>Brush</button>
+      <button onClick={() => setMode("eraser")}>Eraser</button>
+
+      <button onClick={onClear}>Clear Board</button>
     </div>
   );
 }
+
+

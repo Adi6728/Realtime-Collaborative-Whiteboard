@@ -1,7 +1,11 @@
+import Canvas from "../components/canvas";
+
 export default function Home() {
   return (
-    <main>
-      <h1>Hello from Next.js + React!</h1>
+    <main style={{ background: "#f5f5f5", minHeight: "100vh" }}>
+      <Canvas />
     </main>
   );
 }
+
+
