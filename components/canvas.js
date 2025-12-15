@@ -4,183 +4,245 @@ import { useEffect, useRef, useState } from "react";
 import Toolbar from "./toolbar";
 
 export default function Canvas() {
-  const gridCanvasRef = useRef(null);
-  const drawCanvasRef = useRef(null);
-  const ctxRef = useRef(null);
+  const baseCanvasRef = useRef(null);
+  const overlayCanvasRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const [baseCtx, setBaseCtx] = useState(null);
+  const [overlayCtx, setOverlayCtx] = useState(null);
 
   const [mode, setMode] = useState("brush");
   const [isDrawing, setIsDrawing] = useState(false);
-  const [startPos, setStartPos] = useState(null);
-  const [snapshot, setSnapshot] = useState(null);
-  const [showGrid, setShowGrid] = useState(false);
-  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [start, setStart] = useState(null);
 
-  const getCtx = () => {
-    if (!ctxRef.current) {
-      ctxRef.current = drawCanvasRef.current.getContext("2d");
-    }
-    return ctxRef.current;
-  };
-
-  const resizeCanvas = () => {
-    const toolbarHeight = 60;
-    const w = window.innerWidth;
-    const h = window.innerHeight - toolbarHeight;
-
-    setSize({ w, h });
-
-    gridCanvasRef.current.width = w;
-    gridCanvasRef.current.height = h;
-
-    drawCanvasRef.current.width = w;
-    drawCanvasRef.current.height = h;
-
-    drawGrid();
-  };
-
-  const drawGrid = () => {
-    const canvas = gridCanvasRef.current;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (!showGrid) return;
-
-    const gap = 25;
-    ctx.strokeStyle = "#ddd";
-    ctx.lineWidth = 1;
-
-    for (let x = 0; x < canvas.width; x += gap) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvas.height);
-      ctx.stroke();
-    }
-
-    for (let y = 0; y < canvas.height; y += gap) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvas.width, y);
-      ctx.stroke();
-    }
-  };
+  const [image, setImage] = useState(null);
+  const [imgState, setImgState] = useState(null);
+  const [imageSelected, setImageSelected] = useState(false);
+  const [activeHandle, setActiveHandle] = useState(null);
 
   useEffect(() => {
-    resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
-    return () => window.removeEventListener("resize", resizeCanvas);
+    const w = window.innerWidth;
+    const h = window.innerHeight - 60;
+
+    baseCanvasRef.current.width = w;
+    baseCanvasRef.current.height = h;
+    overlayCanvasRef.current.width = w;
+    overlayCanvasRef.current.height = h;
+
+    setBaseCtx(baseCanvasRef.current.getContext("2d"));
+    setOverlayCtx(overlayCanvasRef.current.getContext("2d"));
   }, []);
 
-  useEffect(() => {
-    drawGrid();
-  }, [showGrid]);
-
-  const startDrawing = (e) => {
-    const ctx = getCtx();
-    const x = e.nativeEvent.offsetX;
-    const y = e.nativeEvent.offsetY;
-
-    ctx.lineWidth = mode === "eraser" ? 20 : 2;
-    ctx.strokeStyle = "black";
-    ctx.globalCompositeOperation =
-      mode === "eraser" ? "destination-out" : "source-over";
-
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-
-    setStartPos({ x, y });
-    setSnapshot(
-      ctx.getImageData(
-        0,
-        0,
-        drawCanvasRef.current.width,
-        drawCanvasRef.current.height
-      )
+  const redrawOverlay = () => {
+    overlayCtx.clearRect(
+      0,
+      0,
+      overlayCanvasRef.current.width,
+      overlayCanvasRef.current.height
     );
-    setIsDrawing(true);
+
+    if (image && imgState) {
+      overlayCtx.drawImage(
+        image,
+        imgState.x,
+        imgState.y,
+        imgState.w,
+        imgState.h
+      );
+
+      if (imageSelected) drawHandles();
+    }
   };
 
-  const draw = (e) => {
-    if (!isDrawing) return;
-    const ctx = getCtx();
+  const drawHandles = () => {
+    const { x, y, w, h } = imgState;
+    overlayCtx.strokeStyle = "blue";
+    overlayCtx.strokeRect(x, y, w, h);
+
+    [
+      { x, y },
+      { x: x + w, y },
+      { x, y: y + h },
+      { x: x + w, y: y + h },
+    ].forEach((p) => {
+      overlayCtx.fillStyle = "white";
+      overlayCtx.fillRect(p.x - 4, p.y - 4, 8, 8);
+      overlayCtx.strokeRect(p.x - 4, p.y - 4, 8, 8);
+    });
+  };
+
+  const mouseDown = (e) => {
     const x = e.nativeEvent.offsetX;
     const y = e.nativeEvent.offsetY;
 
-    if (mode === "brush" || mode === "eraser") {
-      ctx.lineTo(x, y);
-      ctx.stroke();
+    if (mode === "image" && image && imgState) {
+      if (
+        x >= imgState.x &&
+        x <= imgState.x + imgState.w &&
+        y >= imgState.y &&
+        y <= imgState.y + imgState.h
+      ) {
+        setImageSelected(true);
+        setActiveHandle("move");
+        setStart({ x, y });
+        return;
+      }
+    }
+
+    if (mode !== "image") {
+      baseCtx.beginPath();
+      baseCtx.moveTo(x, y);
+      setStart({ x, y });
+      setIsDrawing(true);
+    }
+  };
+
+  const mouseMove = (e) => {
+    const x = e.nativeEvent.offsetX;
+    const y = e.nativeEvent.offsetY;
+
+    if (mode === "image" && activeHandle && imgState) {
+      setImgState({
+        ...imgState,
+        x: imgState.x + (x - start.x),
+        y: imgState.y + (y - start.y),
+      });
+      setStart({ x, y });
+      redrawOverlay();
       return;
     }
 
-    ctx.putImageData(snapshot, 0, 0);
+    if (!isDrawing) return;
+
+    if (mode === "brush" || mode === "eraser") {
+      baseCtx.strokeStyle = "black";
+      baseCtx.lineWidth = mode === "eraser" ? 20 : 2;
+      baseCtx.globalCompositeOperation =
+        mode === "eraser" ? "destination-out" : "source-over";
+
+      baseCtx.lineTo(x, y);
+      baseCtx.stroke();
+      return;
+    }
+
+    redrawOverlay();
+    overlayCtx.strokeStyle = "black";
+    overlayCtx.lineWidth = 2;
 
     if (mode === "line") {
-      ctx.beginPath();
-      ctx.moveTo(startPos.x, startPos.y);
-      ctx.lineTo(x, y);
-      ctx.stroke();
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(start.x, start.y);
+      overlayCtx.lineTo(x, y);
+      overlayCtx.stroke();
     }
 
     if (mode === "rect") {
-      ctx.strokeRect(
-        startPos.x,
-        startPos.y,
-        x - startPos.x,
-        y - startPos.y
+      overlayCtx.strokeRect(
+        start.x,
+        start.y,
+        x - start.x,
+        y - start.y
       );
     }
 
     if (mode === "circle") {
-      const r = Math.hypot(x - startPos.x, y - startPos.y);
-      ctx.beginPath();
-      ctx.arc(startPos.x, startPos.y, r, 0, Math.PI * 2);
-      ctx.stroke();
+      const r = Math.hypot(x - start.x, y - start.y);
+      overlayCtx.beginPath();
+      overlayCtx.arc(start.x, start.y, r, 0, Math.PI * 2);
+      overlayCtx.stroke();
     }
   };
 
-  const stopDrawing = () => {
-    const ctx = getCtx();
-    ctx.closePath();
-    ctx.globalCompositeOperation = "source-over";
+  const mouseUp = () => {
+    if (isDrawing && mode !== "brush" && mode !== "eraser") {
+      baseCtx.drawImage(overlayCanvasRef.current, 0, 0);
+      redrawOverlay();
+    }
+
     setIsDrawing(false);
-    setStartPos(null);
-    setSnapshot(null);
+    setActiveHandle(null);
+    baseCtx.globalCompositeOperation = "source-over";
   };
 
-  const clearBoard = () => {
-    const ctx = getCtx();
-    ctx.clearRect(
+  const importImage = () => fileInputRef.current.click();
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        setImage(img);
+        setImgState({
+          x: 100,
+          y: 100,
+          w: img.width / 2,
+          h: img.height / 2,
+        });
+        setMode("image");
+        setImageSelected(true);
+        redrawOverlay();
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clear = () => {
+    baseCtx.clearRect(
       0,
       0,
-      drawCanvasRef.current.width,
-      drawCanvasRef.current.height
+      baseCanvasRef.current.width,
+      baseCanvasRef.current.height
     );
+    overlayCtx.clearRect(
+      0,
+      0,
+      overlayCanvasRef.current.width,
+      overlayCanvasRef.current.height
+    );
+    setImage(null);
   };
 
   return (
-    <div style={{ height: "100vh", overflow: "hidden" }}>
+    <>
       <Toolbar
-        setMode={setMode}
-        onClear={clearBoard}
-        toggleGrid={() => setShowGrid(!showGrid)}
-        showGrid={showGrid}
+        setMode={(m) => {
+          setMode(m);
+          if (m !== "image") setImageSelected(false);
+        }}
+        onImportImage={importImage}
+        onClear={clear}
       />
 
-      <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <input
+        ref={fileInputRef}
+        type="file"
+        hidden
+        accept="image/png,image/jpeg"
+        onChange={handleFile}
+      />
+
+      <div style={{ position: "relative" }}>
         <canvas
-          ref={gridCanvasRef}
+          ref={baseCanvasRef}
           style={{ position: "absolute", top: 0, left: 0 }}
         />
-
         <canvas
-          ref={drawCanvasRef}
+          ref={overlayCanvasRef}
           style={{ position: "absolute", top: 0, left: 0 }}
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
+          onMouseDown={mouseDown}
+          onMouseMove={mouseMove}
+          onMouseUp={mouseUp}
         />
       </div>
-    </div>
+    </>
   );
 }
+
+
+
+
 
